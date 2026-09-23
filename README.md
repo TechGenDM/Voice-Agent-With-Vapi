@@ -1,75 +1,137 @@
-# Voice Agent With VAPI
+# 43. Project - Voice Assistant with VAPI
 
-A voice automation project that integrates a voice assistant with VAPI for automated voice handling, voice commands, and conversational workflows.
+## Overview
 
-## Features
+This module documents building a voice assistant using VAPI and n8n. The goal is a multi-agent voice workflow where the VAPI assistant uses custom tools backed by n8n webhooks and agent logic.
 
-- Voice agent automation using VAPI
-- Voice command recognition and response handling
-- Configurable voice workflows and actions
-- Easy setup for local development and deployment
+Key concepts:
+- Voice assistant frontend in VAPI
+- Backend automation in n8n
+- Agent-as-a-tool architecture
+- Tool definitions for availability checks and booking
+- Streaming call flow and debugging
 
-## Project Structure
+## Architecture
 
-- `README.md` - Project documentation
-- `src/` - Project source code (if present)
-- `config/` - Configuration files and settings (if present)
-- `scripts/` - Automation scripts (if present)
+1. VAPI assistant is created in the VAPI console with an identity prompt and tools.
+2. Custom tools in VAPI call n8n webhook endpoints.
+3. n8n workflows receive tool calls, execute calendar and booking operations, and return structured responses.
+4. VAPI handles the voice/chat interface and lets the assistant decide when to use tools.
 
-## Prerequisites
+## Setup: VAPI Account and Assistant
 
-- Node.js 18+ or latest stable version
-- npm or pnpm
-- Access to VAPI credentials or API keys
-- Microphone access for voice input (local development)
+- Create a VAPI account and claim the free credit ($10 at time of recording).
+- Build a new assistant, e.g. `YT Assistant`.
+- Choose provider/model settings: OpenAI GPT-4 cluster or similar.
+- Set a system prompt for assistant personality and behavior.
 
-## Installation
+Example prompt notes:
+- Friendly and professional receptionist for a dental clinic
+- Responsible for booking appointments efficiently
+- Can ask for user name, phone number, and preferred time
+- Must use tools to confirm availability and book slots
 
-```bash
-cd "Voice Agent With Vapi"
-npm install
-```
+## Adding Tools to VAPI
 
-## Configuration
+### Custom tool: Get Availability
 
-1. Copy the example configuration file if one is present:
+- Create a custom tool called `get availability tool`.
+- Use `date` as a string parameter.
+- Provide a description that explains the user input examples: `tomorrow 3-4pm`, `25th October`, `2-3pm`.
+- Set the tool to call the n8n webhook production URL.
+- Configure a short timeout (20 seconds recommended).
 
-```bash
-cp .env.example .env
-```
+### Custom tool: Booking Tool
 
-2. Update `.env` with your VAPI credentials and any project-specific settings:
+- Create a second tool called `booking tool`.
+- Define parameters such as `date` and `name`.
+- Add clear descriptions so the assistant can send the right data.
+- Set the webhook server URL to the booking workflow endpoint.
+- Keep credential handling in mind: this demo uses open testing mode, but production needs proper auth.
 
-```env
-VAPI_API_KEY=your_vapi_api_key
-VAPI_ENDPOINT=https://api.vapi.example.com
-VOICE_AGENT_NAME=VoiceAgent
-```
+### Important workflow detail
 
-## Usage
+- Publish the tool after changes. VAPI tool definitions do not take effect until published.
+- If the assistant appears unable to call the tool, publishing is the first debugging step.
 
-```bash
-npm start
-```
+## n8n Workflow Design
 
-Then follow the console instructions to initialize voice capture and interact with the agent.
+### Core nodes
 
-## Development
+- `Webhook` node(s): accept tool calls from VAPI.
+- `AI Agent` node(s): process incoming requests and call tools or downstream services.
+- `Google Gemini Chat Model`: provides the LLM used by the agent.
+- `Simple Memory` buffer: keeps short-term conversational context.
+- `Google Calendar Tool`: checks availability and can book events.
+- `Structured Output Parser`: formats tool responses for the agent.
+- `Respond to Webhook`: returns responses to VAPI.
 
-- Modify source files in `src/`
-- Update configuration values in `.env`
-- Restart the app after making changes
+### Multi-agent and sub-agent pattern
+
+- Use n8n agents as backend tools for VAPI.
+- The VAPI assistant calls a webhook tool, which in turn may delegate to other n8n agents.
+- This forms a multi-agent architecture where the main voice assistant uses smaller booking or availability agents as tools.
+
+## Workflow Example
+
+1. User says: `Can you book an appointment for tomorrow at 5 p.m.`
+2. VAPI assistant asks for name and phone number.
+3. Assistant decides to call `get availability tool` with the requested date/time.
+4. n8n webhook receives the tool call, queries calendar availability, and returns a structured response.
+5. VAPI agent decides next steps based on availability.
+6. If available, the assistant may call `booking tool` or ask the user to confirm details.
 
 ## Troubleshooting
 
-- Ensure your microphone is connected and permitted
-- Confirm VAPI credentials are correct
-- Check that required dependencies are installed
+### Common issues
 
-## Contributing
+- Tool changes not published in VAPI.
+- Workflows not active in n8n.
+- Incorrect webhook URL or missing query data.
+- VAPI insufficient tool parameter schema.
+- No result returned from n8n due to runtime or parsing errors.
 
-Contributions are welcome. Open issues or pull requests for enhancements, bug fixes, or documentation updates.
+### Debugging steps
 
-## License
+- Verify the VAPI tool has the correct production webhook URL.
+- Confirm the n8n workflow is active and reachable.
+- Check VAPI execution logs for tool call attempts.
+- Check n8n execution logs for webhook requests and response payloads.
+- Ensure the agent output parser schema matches the expected response format.
 
-Specify your project license here.
+## Demo and Lessons Learned
+
+### Execution flow
+
+- The assistant can successfully ask for the user's details.
+- The tool call may be visible in VAPI execution logs with a body containing the webhook URL and tool arguments.
+- The booking flow should route through the backend n8n workflow.
+
+### Practical observations
+
+- Getting the voice call end-to-end requires stable tooling and may still fail due to platform-specific issues.
+- The agent can still be tested through the VAPI chat interface before using live voice.
+- Additional debugging is often needed when a request reaches VAPI but not the n8n webhook.
+
+## Best Practices
+
+- Use explicit tool definitions with clear parameter names.
+- Keep the assistant prompt grounded with tool usage instructions.
+- Publish tool definitions after every update.
+- Use n8n webhooks as the backend integration point for VAPI.
+- Build using the agent-as-a-tool mindset: let the voice assistant orchestrate tool calls instead of hardcoding logic.
+
+## Key Takeaways
+
+- VAPI can function as a voice front end for n8n backend automation.
+- Custom tools bridge VAPI assistant actions to webhook-based workflows.
+- A multi-agent architecture increases flexibility and makes the voice assistant extensible.
+- Publishing and activation are critical steps to make the integration work.
+- Logging both VAPI and n8n execution traces is essential for troubleshooting.
+
+## Next steps
+
+- Add more tools for email, Google Sheets, SMS, or booking confirmations.
+- Secure the webhook endpoints with authentication.
+- Improve the assistant prompt to handle more conversational booking scenarios.
+- Add retries and fallback handling for tool call failures.
