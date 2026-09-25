@@ -1,0 +1,353 @@
+{
+  "name": "Booking Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "booking-agent",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "b42a4830-8c8c-4098-aa0d-46d930c80b49",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        112
+      ],
+      "webhookId": "e76bef4b-c3cf-4a0c-a9e0-6c5a52475a4b"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "tc1",
+              "name": "toolCallId",
+              "type": "string",
+              "value": "={{ JSON.parse(JSON.stringify($json.body.message.toolCalls[0])).id }}"
+            },
+            {
+              "id": "tc2",
+              "name": "date",
+              "type": "string",
+              "value": "={{ (() => { const f = JSON.parse(JSON.stringify($json.body.message.toolCalls[0].function)); const key = Object.keys(f).find(k => k.startsWith(\"argum\")); return key ? f[key].date : \"\"; })() }}"
+            },
+            {
+              "id": "tc3",
+              "name": "name",
+              "type": "string",
+              "value": "={{ (() => { const f = JSON.parse(JSON.stringify($json.body.message.toolCalls[0].function)); const key = Object.keys(f).find(k => k.startsWith(\"argum\")); return key ? (f[key].name || \"\") : \"\"; })() }}"
+            },
+            {
+              "id": "tc4",
+              "name": "phone",
+              "type": "string",
+              "value": "={{ (() => { const f = JSON.parse(JSON.stringify($json.body.message.toolCalls[0].function)); const key = Object.keys(f).find(k => k.startsWith(\"argum\")); return key ? (f[key].phone || \"\") : \"\"; })() }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "aed978f6-d814-424c-b83c-ba05f34dfcfe",
+      "name": "Extract Tool Call",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        224,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ \"Booking request from caller: \" + $json.name + \", phone: \" + $json.phone + \", requested time: \" + $json.date + \". Today is \" + $now.toISO() + \". Interpret the requested date/time into a concrete start and end time, then follow the create-or-update procedure and confirm.\" }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are a booking assistant. First check if the caller already has an existing booking using their phone number. If they do, update it with the new details. If not, create a new booking. Confirm only after the calendar operation succeeds, and tell the caller whether their appointment was newly booked or updated."
+        }
+      },
+      "id": "345d2b51-b4ad-4467-a5f6-c7a172648aba",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        576,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.8-flash",
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "id": "c6466d3d-95d5-4da6-91b3-dc5d81e5a986",
+      "name": "Google Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        448,
+        336
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": null,
+          "name": "Gateway credits",
+          "__aiGatewayManaged": true
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $(\"Extract Tool Call\").item.json.toolCallId }}"
+      },
+      "id": "cadddb50-caea-4fa9-b176-31b0694b4475",
+      "name": "Simple Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.4,
+      "position": [
+        576,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "calendar": {
+          "__rl": true,
+          "value": "your-calendar-id@group.calendar.google.com",
+          "mode": "list",
+          "cachedResultName": "Development "
+        },
+        "limit": 10,
+        "timeMin": "={{ $now.toISO() }}",
+        "timeMax": "={{ $now.plus({ days: 14 }).toISO() }}",
+        "options": {
+          "query": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('query', \"The caller's phone number to search for in existing event descriptions\") }}"
+        }
+      },
+      "id": "7a13b8b6-8dc3-4613-96d1-b581afd4fa88",
+      "name": "search_events",
+      "type": "n8n-nodes-base.googleCalendarTool",
+      "typeVersion": 1.3,
+      "position": [
+        640,
+        528
+      ],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "rc0683Tw6yXjFqi3",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "calendar": {
+          "__rl": true,
+          "value": "your-calendar-id@group.calendar.google.com",
+          "mode": "list",
+          "cachedResultName": "Development "
+        },
+        "start": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('start', 'Event start time in ISO 8601 format') }}",
+        "end": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('end', 'Event end time in ISO 8601 format') }}",
+        "additionalFields": {
+          "description": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('description', \"Event description. MUST include the caller's phone number so the booking can be found later\") }}",
+          "summary": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('summary', \"Event title including the caller's name\") }}"
+        }
+      },
+      "id": "d7f883e0-8910-49b8-8c83-9851236d664f",
+      "name": "create_event",
+      "type": "n8n-nodes-base.googleCalendarTool",
+      "typeVersion": 1.3,
+      "position": [
+        704,
+        336
+      ],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "rc0683Tw6yXjFqi3",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "calendar": {
+          "__rl": true,
+          "value": "your-calendar-id@group.calendar.google.com",
+          "mode": "list",
+          "cachedResultName": "Development "
+        },
+        "eventId": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('eventId', 'The id of the existing event returned by search_events') }}",
+        "updateFields": {
+          "description": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('description', \"Event description. MUST keep including the caller's phone number\") }}",
+          "end": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('end', 'New event end time in ISO 8601 format') }}",
+          "start": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('start', 'New event start time in ISO 8601 format') }}",
+          "summary": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('summary', \"New event title including the caller's name\") }}"
+        }
+      },
+      "id": "ef4c97e7-5a21-4974-a4b9-56a3e94c8ca1",
+      "name": "update_event",
+      "type": "n8n-nodes-base.googleCalendarTool",
+      "typeVersion": 1.3,
+      "position": [
+        896,
+        528
+      ],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "rc0683Tw6yXjFqi3",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"message\": \"Your booking is confirmed for tomorrow 3-4pm.\"\n}"
+      },
+      "id": "de812437-ac3a-41e7-826b-6fac29b1ca11",
+      "name": "Structured Output Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        832,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { results: [{ toolCallId: $(\"Extract Tool Call\").item.json.toolCallId, result: $json.output.message }] } }}",
+        "options": {}
+      },
+      "id": "f1e2449a-c7e4-4126-a07e-a9c7acd6d537",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1040,
+        112
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract Tool Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Tool Call": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "search_events": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "create_event": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "update_event": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "39d75a95-029a-4823-b80b-f78e2cca1026",
+  "meta": {
+    "instanceId": "943b4f96f235b79377502d9834184719643d5b376380b470d5a60219dd5ea657"
+  },
+  "nodeGroups": [],
+  "id": "KoINCfeM8bnCor3f",
+  "tags": []
+}
