@@ -1,137 +1,129 @@
-# 43. Project - Voice Assistant with VAPI
+# Voice-Agent-With-Vapi
 
-## Overview
+A voice AI receptionist that checks calendar availability and books appointments over a live phone/voice call — built with **Vapi** as the voice front end and **n8n** as the automation backend, backed by **Google Calendar**.
 
-This module documents building a voice assistant using VAPI and n8n. The goal is a multi-agent voice workflow where the VAPI assistant uses custom tools backed by n8n webhooks and agent logic.
+Say "book me for tomorrow at 3pm" out loud, and the agent checks your real calendar, books a real event, and confirms — all through natural conversation.
 
-Key concepts:
-- Voice assistant frontend in VAPI
-- Backend automation in n8n
-- Agent-as-a-tool architecture
-- Tool definitions for availability checks and booking
-- Streaming call flow and debugging
+---
 
-## Architecture
+## Sample conversation
 
-1. VAPI assistant is created in the VAPI console with an identity prompt and tools.
-2. Custom tools in VAPI call n8n webhook endpoints.
-3. n8n workflows receive tool calls, execute calendar and booking operations, and return structured responses.
-4. VAPI handles the voice/chat interface and lets the assistant decide when to use tools.
+```
+Caller:    Hi, can you check if tomorrow at 3 PM is available?
+Assistant: Of course. May I have your name and phone number first?
+Caller:    Sure, it's Alex, 9876543210.
+Assistant: Thanks, Alex. Checking availability... Tomorrow at 3 PM
+           is available. Would you like me to book it?
+Caller:    Yes, please.
+Assistant: Perfect — your appointment is confirmed for tomorrow,
+           3:00 PM to 4:00 PM, under Alex. See you then!
+```
 
-## Setup: VAPI Account and Assistant
+Every line here reflects an actual tested call — the assistant genuinely queries Google Calendar and creates a real event, it isn't scripted output.
 
-- Create a VAPI account and claim the free credit ($10 at time of recording).
-- Build a new assistant, e.g. `YT Assistant`.
-- Choose provider/model settings: OpenAI GPT-4 cluster or similar.
-- Set a system prompt for assistant personality and behavior.
+---
 
-Example prompt notes:
-- Friendly and professional receptionist for a dental clinic
-- Responsible for booking appointments efficiently
-- Can ask for user name, phone number, and preferred time
-- Must use tools to confirm availability and book slots
+## How it works
 
-## Adding Tools to VAPI
+```mermaid
+graph LR
+    A[Caller] -->|Voice| B[Vapi Assistant]
+    B -->|get_availability tool| C[n8n: Get Availability Agent]
+    B -->|booking_tool| D[n8n: Booking Agent]
+    C --> E[Google Calendar]
+    D --> E[Google Calendar]
+    C -->|JSON result| B
+    D -->|JSON result| B
+    B -->|Voice| A
+```
 
-### Custom tool: Get Availability
+1. **Vapi** hosts the voice assistant — it handles speech-to-text, the conversation logic, and text-to-speech.
+2. When the caller asks about availability or wants to book, Vapi calls one of two **custom tools**, each pointing at an **n8n webhook**.
+3. Each n8n workflow runs an **AI Agent** (Google Gemini) with a **Google Calendar** tool attached, does the actual calendar work, and replies in the exact JSON shape Vapi expects.
+4. Vapi speaks the result back to the caller.
 
-- Create a custom tool called `get availability tool`.
-- Use `date` as a string parameter.
-- Provide a description that explains the user input examples: `tomorrow 3-4pm`, `25th October`, `2-3pm`.
-- Set the tool to call the n8n webhook production URL.
-- Configure a short timeout (20 seconds recommended).
+---
 
-### Custom tool: Booking Tool
+## Features
 
-- Create a second tool called `booking tool`.
-- Define parameters such as `date` and `name`.
-- Add clear descriptions so the assistant can send the right data.
-- Set the webhook server URL to the booking workflow endpoint.
-- Keep credential handling in mind: this demo uses open testing mode, but production needs proper auth.
+- **Natural voice booking** — caller can check availability and book an appointment in one conversation, no forms
+- **Real calendar integration** — every check and booking touches an actual Google Calendar, not mock data
+- **Create-or-update logic** — a returning caller (matched by phone number) has their *existing* appointment updated instead of a duplicate being created
+- **Structured tool responses** — both n8n workflows return Vapi's required `{ results: [{ toolCallId, result }] }` format
 
-### Important workflow detail
+---
 
-- Publish the tool after changes. VAPI tool definitions do not take effect until published.
-- If the assistant appears unable to call the tool, publishing is the first debugging step.
+## Tech stack
 
-## n8n Workflow Design
+| Layer | Tool |
+|---|---|
+| Voice assistant / orchestration | [Vapi](https://vapi.ai) |
+| Backend automation | [n8n](https://n8n.io) (Cloud) |
+| AI model (per workflow) | Google Gemini |
+| Calendar | Google Calendar API |
+| Transcription | Soniox (via Vapi) |
 
-### Core nodes
+---
 
-- `Webhook` node(s): accept tool calls from VAPI.
-- `AI Agent` node(s): process incoming requests and call tools or downstream services.
-- `Google Gemini Chat Model`: provides the LLM used by the agent.
-- `Simple Memory` buffer: keeps short-term conversational context.
-- `Google Calendar Tool`: checks availability and can book events.
-- `Structured Output Parser`: formats tool responses for the agent.
-- `Respond to Webhook`: returns responses to VAPI.
+## Tools
 
-### Multi-agent and sub-agent pattern
+### `get_availability`
+Checks Google Calendar for a given date/time and reports whether it's free.
 
-- Use n8n agents as backend tools for VAPI.
-- The VAPI assistant calls a webhook tool, which in turn may delegate to other n8n agents.
-- This forms a multi-agent architecture where the main voice assistant uses smaller booking or availability agents as tools.
+**Parameters:** `date` (string)
 
-## Workflow Example
+### `booking_tool`
+Books a new appointment, or **updates an existing one** if the same phone number already has a booking.
 
-1. User says: `Can you book an appointment for tomorrow at 5 p.m.`
-2. VAPI assistant asks for name and phone number.
-3. Assistant decides to call `get availability tool` with the requested date/time.
-4. n8n webhook receives the tool call, queries calendar availability, and returns a structured response.
-5. VAPI agent decides next steps based on availability.
-6. If available, the assistant may call `booking tool` or ask the user to confirm details.
+**Parameters:** `date`, `name`, `phone`
 
-## Troubleshooting
+The phone number is stored in the calendar event's description and used as the lookup key — see [Bug found & fixed](#bug-found--fixed) below for why this exists.
 
-### Common issues
+---
 
-- Tool changes not published in VAPI.
-- Workflows not active in n8n.
-- Incorrect webhook URL or missing query data.
-- VAPI insufficient tool parameter schema.
-- No result returned from n8n due to runtime or parsing errors.
+## Setup
 
-### Debugging steps
+1. **n8n**: Import/build the two workflows (`Get Availability Agent`, `Booking Agent`), each starting with a Webhook (POST) node and ending with a Respond to Webhook node. Connect a Google Calendar credential.
+2. **Vapi**: Create an assistant, add the `get_availability` and `booking_tool` custom tools, and set each tool's Server URL to the matching n8n webhook's production URL.
+3. **System prompt**: Configure the assistant to always collect the caller's name and phone number, and to pass the phone number on every booking/update request.
+4. **Publish** both n8n workflows — a draft workflow's webhook will not respond to real calls.
+5. Test via Vapi's built-in "Talk" feature before trusting a live phone number.
 
-- Verify the VAPI tool has the correct production webhook URL.
-- Confirm the n8n workflow is active and reachable.
-- Check VAPI execution logs for tool call attempts.
-- Check n8n execution logs for webhook requests and response payloads.
-- Ensure the agent output parser schema matches the expected response format.
+---
 
-## Demo and Lessons Learned
+## Bug found & fixed
 
-### Execution flow
+**The problem:** early on, when a caller asked to change a detail on an appointment they'd just booked (e.g. "actually, my name is X, not Y"), the assistant *said* it had updated the booking — but the booking tool only knew how to *create* events. The result was two separate calendar events for the same slot, one for each name.
 
-- The assistant can successfully ask for the user's details.
-- The tool call may be visible in VAPI execution logs with a body containing the webhook URL and tool arguments.
-- The booking flow should route through the backend n8n workflow.
+**The fix:** the caller's phone number is now stored in each event's description at creation time. Before booking, the workflow searches the calendar for an existing event tied to that phone number:
+- **Match found** → the existing event is updated (new time/name), not duplicated
+- **No match** → a new event is created
 
-### Practical observations
+This was verified with a live test: the same phone number was used to create a booking, then immediately submit a second request with a different name and time. The calendar confirmed exactly one event existed afterward, updated in place (`sequence: 1`), not two.
 
-- Getting the voice call end-to-end requires stable tooling and may still fail due to platform-specific issues.
-- The agent can still be tested through the VAPI chat interface before using live voice.
-- Additional debugging is often needed when a request reaches VAPI but not the n8n webhook.
+**Takeaway:** an LLM-driven voice agent can sound completely confident about an action it never actually performed, if the underlying tool doesn't support it. Always verify against the real system (in this case, the actual calendar), not the assistant's spoken confirmation.
 
-## Best Practices
+---
 
-- Use explicit tool definitions with clear parameter names.
-- Keep the assistant prompt grounded with tool usage instructions.
-- Publish tool definitions after every update.
-- Use n8n webhooks as the backend integration point for VAPI.
-- Build using the agent-as-a-tool mindset: let the voice assistant orchestrate tool calls instead of hardcoding logic.
+## Known limitations / not built (yet)
 
-## Key Takeaways
+This is a learning and showcase project, not a production deployment. The following are intentionally out of scope for now:
 
-- VAPI can function as a voice front end for n8n backend automation.
-- Custom tools bridge VAPI assistant actions to webhook-based workflows.
-- A multi-agent architecture increases flexibility and makes the voice assistant extensible.
-- Publishing and activation are critical steps to make the integration work.
-- Logging both VAPI and n8n execution traces is essential for troubleshooting.
+- No cancellation tool (only create/update)
+- No authentication on the webhook endpoints
+- No retry/fallback handling if a tool call fails mid-conversation
+- No SMS/email confirmation after booking
+- Matching is by phone number only — no handling for a caller who calls from a different number
 
-## Next steps
+## Possible future improvements
 
-- Add more tools for email, Google Sheets, SMS, or booking confirmations.
-- Secure the webhook endpoints with authentication.
-- Improve the assistant prompt to handle more conversational booking scenarios.
-- Add retries and fallback handling for tool call failures.
+- Add a cancellation tool
+- Secure the n8n webhooks (e.g. header auth)
+- Send a confirmation SMS or email after booking
+- Handle the caller asking for a slot that's already booked with alternative suggestions
+
+---
+
+## Status
+
+Core functionality (availability check, booking, and create-or-update logic) is built and **live-verified** against real Google Calendar and real voice calls. Not intended for production use as-is.
