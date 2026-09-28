@@ -127,3 +127,7 @@ This is a learning and showcase project, not a production deployment. The follow
 ## Status
 
 Core functionality (availability check, booking, and create-or-update logic) is built and **live-verified** against real Google Calendar and real voice calls. Not intended for production use as-is.
+
+---
+
+Built by [TechGenDM](https://github.com/TechGenDM)
